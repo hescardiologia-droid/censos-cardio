@@ -24,6 +24,19 @@
   const ESTUDIOS = ['Ecocardiograma', 'Monitoreo Holter', 'Interconsulta', 'Evaluación preoperatoria',
     'Prueba de esfuerzo', 'Ecocardiograma transesofágico', 'Resonancia magnética cardiaca'];
   const PRIORIDADES = ['I. Emergencia', 'II. Urgencia', 'III. A demanda'];
+  // Servicios por módulo para "Llenar solicitud" (deben coincidir con la API de censos).
+  const SERVICIOS = {
+    hospitalizacion: ['Medicina Mujeres 1', 'Medicina Mujeres 2', 'Medicina Mujeres 3', 'Medicina Hombres 1',
+      'Medicina Hombres 2', 'Medicina Hombres 3', 'Servicio de Aislados', 'Cuidados Paliativos'],
+    intermedios: ['Cuidados Intermedios Agudos', 'Cuidados Intermedios Crónicos', 'Cuidados Intermedios Aislados'],
+    intensivos: ['UNIDAD DE CUIDADOS CORONARIOS Y POSTQUIRÚRGICOS CARDIOVASCULARES', 'UNIDAD DE CUIDADOS INTENSIVOS GENERAL ADULTO',
+      'UNIDAD DE CUIDADOS INTENSIVOS CARDIOVASCULAR', 'UNIDAD DE CUIDADOS INTENSIVOS QUIRÚRGICOS',
+      'UNIDAD DE CUIDADOS INTENSIVOS EXTRACORPÓREA', 'UNIDAD DE CUIDADOS INTENSIVOS AISLADOS', 'UNIDAD DE CUIDADOS NEUROINTENSIVOS'],
+    cardio_cxcv: ['Cardiología', 'Cirugía Cardiovascular'],
+    hemato_onco: ['Hematología', 'Oncología'],
+    cirugia: ['Cirugía Mujeres', 'Cirugía Hombres', 'Neurocirugía'],
+    emergencia: ['Emergencia']
+  };
   const GRUPOS_EDAD = [['Menos de 20', 0, 19], ['20 – 29', 20, 29], ['30 – 39', 30, 39], ['40 – 49', 40, 49], ['50 – 59', 50, 59],
     ['60 – 69', 60, 69], ['70 – 79', 70, 79], ['80 o más', 80, 200]];
   const LETRAS_DIA = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -478,7 +491,7 @@
         onkeydown: function (ev) { if (ev.key === 'Enter' && ev.target.tagName === 'TR') abrirDetalle(f); } },
       h('td', { class: 'c-marcar' }, selectorMarcado(f)),
       h('td', { class: 'nowrap', 'data-e': 'Solicitud' }, o.soloHora ? horaDe(f.fecha_hora) : fechaHora(f.fecha_hora),
-        f.origen === 'CUPO EXTRA' ? h('div', { class: 'tenue' }, 'cupo extra') : null),
+        f.origen === 'CUPO EXTRA' ? h('div', { class: 'tenue' }, 'cupo extra') : f.origen === 'CARDIOLOGÍA' ? h('div', { class: 'tenue' }, 'por Cardiología') : null),
       h('td', null, chipPrioridad(f)),
       h('td', { class: 'c-pac pac' }, h('b', null, f.nombre), h('span', { class: 'tenue' }, 'Exp. ' + (f.expediente || 's/d')),
         S.repetidas.has(f.id) ? h('span', { class: 'chip rep', style: 'margin-left:6px', title: 'Mismo expediente y estudio solicitados más de una vez este día' }, 'Posible repetida') : null),
@@ -534,7 +547,9 @@
     agregar(main, [
       h('div', { class: 'cab' }, h('h2', null, NOMBRE_AREA[clave]),
         h('span', { class: 'estado-form' }, e ? h('span', { class: 'punto ' + (e.abierto ? (e.cupo_extra ? 'extra' : 'abierto') : '') }) : null, textoEstadoArea(e)),
-        h('button', { class: 'btn primario no-imprimir', onclick: function () { nuevaSolicitud(clave); } }, '＋ Nueva solicitud')),
+        h('div', { class: 'acciones-area no-imprimir' },
+          h('button', { class: 'btn', onclick: function () { nuevaSolicitud(clave); } }, '＋ Nuevo cupo'),
+          h('button', { class: 'btn primario', onclick: function () { llenarSolicitud(clave); } }, '✎ Llenar solicitud'))),
       h('div', { class: 'pestanas', role: 'tablist' }, Object.keys(titulos).map(function (t) {
         return h('button', { class: 'pestana', role: 'tab', 'aria-selected': String(u.tab === t), onclick: function () { cambiar(t); } }, titulos[t], h('span', { class: 'n' }, grupos[t].length));
       })),
@@ -554,7 +569,62 @@
       'Se muestran los completados desde el ' + fechaCorta(S.desde) + '.', btn);
   }
 
-  /* ---------- nueva solicitud / cupo extra ---------- */
+  /* ---------- llenar solicitud (Cardiología registra una solicitud corta) ---------- */
+  function llenarSolicitud(clave) {
+    const servicios = SERVICIOS[clave] || [];
+    const unico = servicios.length === 1;
+    modalChico('Llenar solicitud · ' + NOMBRE_AREA[clave], function (cerrar) {
+      const err = cajaError();
+      const soloNumeros = function (max) { return function (ev) { const v = ev.target.value.replace(/\D/g, '').slice(0, max); if (v !== ev.target.value) ev.target.value = v; }; };
+      const c = {
+        estudio: selector([['', 'Seleccione…']].concat(ESTUDIOS.map(function (x) { return [x, x]; })), '', { id: 'll-estudio', 'data-foco': true }),
+        expN: h('input', { type: 'text', id: 'll-exp', inputmode: 'numeric', placeholder: 'Número', style: 'width:120px', 'aria-label': 'Número de expediente', oninput: soloNumeros(7),
+          onkeydown: function (ev) { if (ev.key === '-' || ev.key === '/' || ev.key === ' ') { ev.preventDefault(); c.expA.focus(); } } }),
+        expA: h('input', { type: 'text', id: 'll-exp-a', inputmode: 'numeric', placeholder: 'Año', style: 'width:76px', maxlength: 2, 'aria-label': 'Año del expediente (2 dígitos)', oninput: soloNumeros(2) }),
+        nombre: h('input', { type: 'text', id: 'll-nombre', maxlength: 120, autocomplete: 'off', autocapitalize: 'words' }),
+        edad: h('input', { type: 'text', id: 'll-edad', inputmode: 'numeric', maxlength: 3, style: 'width:100px', oninput: soloNumeros(3) }),
+        sexo: selector([['', 'Seleccione…'], ['Femenino', 'Femenino'], ['Masculino', 'Masculino']], '', { id: 'll-sexo' }),
+        servicio: unico ? null : selector([['', 'Seleccione…']].concat(servicios.map(function (x) { return [x, x]; })), '', { id: 'll-servicio' })
+      };
+      const campo = function (id, etiqueta, control) { return h('div', { class: 'campo' }, h('label', { for: id }, etiqueta), control); };
+      const btn = h('button', { class: 'btn primario ancho', type: 'submit' }, 'Guardar solicitud');
+      return h('form', { autocomplete: 'off', oninput: function () { err.textContent = ''; }, onchange: function () { err.textContent = ''; }, onsubmit: async function (ev) {
+        ev.preventDefault();
+        err.textContent = '';
+        const datos = { estudio: c.estudio.value, expediente: c.expN.value + (c.expA.value ? '-' + c.expA.value : ''), nombre: c.nombre.value.trim(),
+          edad: c.edad.value, sexo: c.sexo.value, servicio: unico ? servicios[0] : c.servicio.value };
+        const faltan = [];
+        if (!datos.estudio) faltan.push('estudio');
+        if (!c.expN.value || c.expA.value.length !== 2) faltan.push('expediente (número y 2 dígitos del año)');
+        if (datos.nombre.length < 3) faltan.push('nombre');
+        if (!datos.edad) faltan.push('edad');
+        if (!datos.sexo) faltan.push('sexo');
+        if (!datos.servicio) faltan.push('servicio');
+        if (faltan.length) { mostrarError(err, new Error('Complete: ' + faltan.join(', ') + '.')); return; }
+        if (Number(datos.edad) > 120) { mostrarError(err, new Error('Revise la edad (0 a 120).')); return; }
+        try {
+          const r = await conBoton(btn, function () { return api('solicitudes.crear', { area: clave, datos: datos }); });
+          cerrar();
+          tostada('Solicitud ' + r.id + ' registrada para ' + datos.nombre + '.');
+          await sincronizar(true);
+          pintar();
+        } catch (e) { mostrarError(err, e); }
+      } },
+        h('p', { style: 'margin:0 0 14px;color:#51606f;font-size:14px' }, 'Se agrega al censo de hoy como pendiente. No consume cupos del formulario.'),
+        campo('ll-estudio', 'Estudio', c.estudio),
+        h('div', { class: 'campo' }, h('label', { for: 'll-exp' }, 'Expediente'),
+          h('div', { style: 'display:flex;align-items:center;gap:8px' }, c.expN, h('span', { 'aria-hidden': 'true', style: 'color:#51606f' }, '–'), c.expA)),
+        campo('ll-nombre', 'Nombre del paciente', c.nombre),
+        h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap' },
+          h('div', { class: 'campo', style: 'flex:0 0 auto' }, h('label', { for: 'll-edad' }, 'Edad (años)'), c.edad),
+          h('div', { class: 'campo', style: 'flex:1 1 160px' }, h('label', { for: 'll-sexo' }, 'Sexo'), c.sexo)),
+        unico ? h('div', { class: 'campo' }, h('span', { style: 'display:block;font-weight:600;font-size:14px;margin-bottom:5px' }, 'Servicio'), h('div', null, servicios[0]))
+          : campo('ll-servicio', 'Servicio', c.servicio),
+        err, btn);
+    });
+  }
+
+  /* ---------- nuevo cupo (cupo extra) ---------- */
   function enlaceFormulario(clave) {
     const base = String(CFG.FORM_APP_URL || '');
     if (!base || /PEGAR_AQUI/.test(base)) return '';
@@ -563,7 +633,7 @@
   function nuevaSolicitud(clave) {
     const e = estadoArea(clave);
     const url = enlaceFormulario(clave);
-    modalChico('Nueva solicitud', function (cerrar) {
+    modalChico('Nuevo cupo', function (cerrar) {
       const caja = h('div');
       const err = cajaError();
       const enlace = function () {
@@ -662,7 +732,7 @@
         h('div', { class: 'modal-cab' },
           h('div', { style: 'min-width:0' }, h('h2', null, f.nombre),
             h('div', { class: 'meta' }, chipPrioridad(f), h('span', null, f.estudio), h('span', null, '·'), h('span', null, 'Solicitud ' + f.id),
-              h('span', null, '·'), h('span', null, fechaHora(f.fecha_hora)), f.origen === 'CUPO EXTRA' ? h('span', { class: 'chip gris' }, 'Cupo extra') : null,
+              h('span', null, '·'), h('span', null, fechaHora(f.fecha_hora)), f.origen === 'CUPO EXTRA' ? h('span', { class: 'chip gris' }, 'Cupo extra') : f.origen === 'CARDIOLOGÍA' ? h('span', { class: 'chip gris' }, 'Llenada por Cardiología') : null,
               S.repetidas.has(f.id) ? h('span', { class: 'chip rep' }, 'Posible repetida') : null)),
           h('button', { class: 'btn chico x', onclick: cerrar, 'aria-label': 'Cerrar' }, '✕ Cerrar')),
         h('div', { class: 'modal-cuerpo' },
